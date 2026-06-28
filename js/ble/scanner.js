@@ -1,13 +1,19 @@
 import { BLE_STALE_MS } from '../config.js';
-import { extractServiceData } from './parsers.js';
-import { getDeviceList } from '../storage/devices.js';
+import { ATC_OPTIONAL_SERVICES, connectAndSubscribe } from './gatt.js';
+import {
+  addDevice,
+  getDeviceById,
+  getDeviceList,
+  removeDevice,
+  updateDevice,
+} from '../storage/devices.js';
 
 /** @typedef {{ deviceId: string, name: string, bleName: string, temperature?: number, humidity?: number, battery?: number, lastSeen?: number, stale?: boolean }} LiveReading */
 
 /** @type {Map<string, LiveReading>} */
 const readings = new Map();
-/** @type {BluetoothLEScan | null} */
-let activeScan = null;
+/** @type {Map<string, () => void>} */
+const disconnectHandlers = new Map();
 /** @type {((map: Map<string, LiveReading>) => void) | null} */
 let onUpdate = null;
 
@@ -29,135 +35,191 @@ function emit() {
   onUpdate?.(getReadings());
 }
 
-function handleAdvert(event) {
-  const parsed = extractServiceData(event);
-  if (!parsed) return;
-
-  const deviceId = event.device.id;
-  const bleName = event.device.name || deviceId.slice(0, 8);
+function updateReading(deviceId, bleName, partial) {
   const saved = getDeviceList().find((d) => d.deviceId === deviceId);
-  const name = saved?.name || bleName;
-
+  const prev = readings.get(deviceId);
   readings.set(deviceId, {
     deviceId,
-    name,
-    bleName,
-    temperature: parsed.temperature,
-    humidity: parsed.humidity,
-    battery: parsed.battery,
+    name: saved?.name || prev?.name || bleName || deviceId.slice(0, 8),
+    bleName: bleName || prev?.bleName || '',
+    temperature: partial.temperature ?? prev?.temperature,
+    humidity: partial.humidity ?? prev?.humidity,
+    battery: partial.battery ?? prev?.battery,
     lastSeen: Date.now(),
     stale: false,
   });
   emit();
 }
 
-export async function startScan() {
-  if (activeScan) return { ok: true };
-
-  if (!navigator.bluetooth?.requestLEScan) {
-    return { ok: false, error: 'scan_unsupported', message: 'Сканирование недоступно в этом браузере. Используйте Chrome на Android или демо-режим.' };
-  }
-
-  try {
-    activeScan = await navigator.bluetooth.requestLEScan({
-      acceptAllAdvertisements: true,
-      keepRepeatedDevices: true,
+function rememberDevice(deviceId, bleName) {
+  const existing = getDeviceById(deviceId);
+  if (existing) {
+    updateDevice(deviceId, { bleName: bleName || existing.bleName });
+  } else {
+    addDevice({
+      deviceId,
+      name: bleName || deviceId.slice(0, 8),
+      bleName: bleName || '',
+      placement: '',
     });
-    navigator.bluetooth.addEventListener('advertisementreceived', handleAdvert);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: 'scan_denied', message: err.message };
   }
 }
 
-export async function stopScan() {
-  if (activeScan) {
-    activeScan.stop();
-    activeScan = null;
-    navigator.bluetooth.removeEventListener('advertisementreceived', handleAdvert);
-  }
+/** @param {BluetoothDevice} device */
+async function attachDevice(device) {
+  const deviceId = device.id;
+  const bleName = device.name || deviceId.slice(0, 8);
+
+  disconnectHandlers.get(deviceId)?.();
+  disconnectHandlers.delete(deviceId);
+
+  const teardown = await connectAndSubscribe(device, (partial) => {
+    updateReading(deviceId, bleName, partial);
+  });
+
+  disconnectHandlers.set(deviceId, teardown);
+
+  device.addEventListener('gattserverdisconnected', () => {
+    const entry = readings.get(deviceId);
+    if (entry) {
+      readings.set(deviceId, { ...entry, stale: true });
+      emit();
+    }
+  });
+
+  rememberDevice(deviceId, bleName);
+  updateReading(deviceId, bleName, {});
+  return { deviceId, deviceName: getDeviceById(deviceId)?.name || bleName };
 }
 
-/** Fallback: однократное подключение через requestDevice */
-export async function readOnceViaGatt() {
+/** Новый датчик — диалог выбора. */
+export async function connectDevice() {
   if (!navigator.bluetooth?.requestDevice) {
     return { ok: false, message: 'Web Bluetooth недоступен' };
   }
 
   try {
-    // acceptAllDevices — как на pvvx.github.io: показывает все BLE-устройства в радиусе.
-    // Жёсткие namePrefix-фильтры скрывают датчики с именами вроде "Mitemp nostick".
     const device = await navigator.bluetooth.requestDevice({
       acceptAllDevices: true,
-      optionalServices: [
-        'environmental_sensing',
-        'battery_service',
-        'device_information',
-        'fe95', // Xiaomi custom
-        0xfe95,
-      ],
+      optionalServices: ATC_OPTIONAL_SERVICES,
     });
-
-    const server = await device.gatt.connect();
-    let temperature;
-    let humidity;
-    let battery;
-
-    try {
-      const env = await server.getPrimaryService('environmental_sensing');
-      const tempChar = await env.getCharacteristic('temperature');
-      const humChar = await env.getCharacteristic('humidity');
-      const tempVal = await tempChar.readValue();
-      const humVal = await humChar.readValue();
-      temperature = tempVal.getInt16(0, true) / 100;
-      humidity = humVal.getUint16(0, true) / 100;
-    } catch {
-      /* GATT layout varies */
-    }
-
-    try {
-      const batSvc = await server.getPrimaryService('battery_service');
-      const batChar = await batSvc.getCharacteristic('battery_level');
-      const batVal = await batChar.readValue();
-      battery = batVal.getUint8(0);
-    } catch {
-      /* optional */
-    }
-
-    device.gatt.disconnect();
-
-    const deviceId = device.id;
-    readings.set(deviceId, {
-      deviceId,
-      name: device.name || deviceId.slice(0, 8),
-      bleName: device.name || '',
-      temperature,
-      humidity,
-      battery,
-      lastSeen: Date.now(),
-      stale: false,
-    });
-    emit();
-    return { ok: true };
+    const { deviceName } = await attachDevice(device);
+    return { ok: true, deviceName };
   } catch (err) {
+    if (err.name === 'NotFoundError') {
+      return { ok: false, message: 'Датчик не выбран' };
+    }
     return { ok: false, message: err.message };
   }
 }
 
-/** Демо-данные для localhost */
-export function injectDemoReadings() {
-  const now = Date.now();
-  const demo = [
-    { deviceId: 'demo-dom', name: 'Дом', bleName: 'ATC_A4B2', temperature: 22.4, humidity: 53, battery: 95 },
-    { deviceId: 'demo-ulica', name: 'Улица', bleName: 'ATC_C1D3', temperature: 28.1, humidity: 47, battery: 91 },
-  ];
-  for (const d of demo) {
-    readings.set(d.deviceId, { ...d, lastSeen: now, stale: false });
+/** Сохранённый датчик — короткий список в picker (filter по BLE-имени). */
+export async function connectSavedDevice(deviceId) {
+  const saved = getDeviceById(deviceId);
+  if (!saved) {
+    return { ok: false, message: 'Датчик не сохранён' };
   }
-  emit();
+
+  if (!navigator.bluetooth?.requestDevice) {
+    return { ok: false, message: 'Web Bluetooth недоступен' };
+  }
+
+  try {
+    const filters = [];
+    if (saved.bleName) filters.push({ name: saved.bleName });
+    if (saved.name && saved.name !== saved.bleName) {
+      filters.push({ name: saved.name });
+    }
+
+    const device = await navigator.bluetooth.requestDevice({
+      filters: filters.length ? filters : undefined,
+      acceptAllDevices: !filters.length,
+      optionalServices: ATC_OPTIONAL_SERVICES,
+    });
+
+    if (device.id !== deviceId) {
+      removeDevice(deviceId);
+      addDevice({
+        deviceId: device.id,
+        name: saved.name,
+        bleName: device.name || saved.bleName,
+        placement: saved.placement || '',
+      });
+    }
+
+    const { deviceName } = await attachDevice(device);
+    return { ok: true, deviceName };
+  } catch (err) {
+    if (err.name === 'NotFoundError') {
+      return { ok: false, message: 'Датчик не выбран' };
+    }
+    return { ok: false, message: err.message };
+  }
 }
 
-export function clearReadings() {
-  readings.clear();
-  emit();
+/**
+ * Автоподключение без picker — navigator.bluetooth.getDevices().
+ * Chrome 159+ Android/desktop; раньше — только с experimental flag.
+ */
+export async function reconnectSavedDevices() {
+  const saved = getDeviceList();
+  if (!saved.length) {
+    return { ok: true, connected: 0, total: 0, mode: 'none' };
+  }
+
+  if (typeof navigator.bluetooth?.getDevices !== 'function') {
+    return {
+      ok: false,
+      connected: 0,
+      total: saved.length,
+      mode: 'manual',
+      message: 'Автоподключение недоступно — нажмите «Подключить» у сохранённого датчика',
+    };
+  }
+
+  const permitted = await navigator.bluetooth.getDevices();
+  let connected = 0;
+  const failed = [];
+
+  for (const s of saved) {
+    const bt = permitted.find((d) => d.id === s.deviceId);
+    if (!bt) continue;
+    try {
+      await attachDevice(bt);
+      connected += 1;
+    } catch {
+      failed.push(s.name);
+    }
+  }
+
+  const notPermitted = saved.length - permitted.filter((d) =>
+    saved.some((s) => s.deviceId === d.id),
+  ).length;
+
+  return {
+    ok: true,
+    connected,
+    total: saved.length,
+    mode: 'auto',
+    notPermitted,
+    failed,
+    message:
+      connected > 0
+        ? `Автоподключено ${connected} из ${saved.length}`
+        : notPermitted > 0
+          ? 'Нужно один раз подключить датчики через «Подключить датчик»'
+          : 'Сохранённые датчики не в радиусе',
+  };
+}
+
+export function isDeviceConnected(deviceId) {
+  const r = readings.get(deviceId);
+  return Boolean(r && !r.stale && disconnectHandlers.has(deviceId));
+}
+
+export async function teardownConnections() {
+  for (const teardown of disconnectHandlers.values()) {
+    teardown();
+  }
+  disconnectHandlers.clear();
 }

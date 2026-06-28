@@ -1,7 +1,8 @@
-import { BASE_PATH, CLIENT_VERSION, DEMO_MODE } from './config.js';
+import { BASE_PATH, CLIENT_VERSION } from './config.js';
 import { getInstallationId } from './storage/installation.js';
 import { initLive, teardownLive } from './ui/live.js';
 import { initCharts, teardownCharts } from './ui/charts.js';
+import { flushQueue } from './api/write.js';
 import { fetchPlacements } from './api/placements.js';
 import { mergeRemotePlacements } from './storage/devices.js';
 
@@ -41,7 +42,7 @@ tabs.forEach((tab) => {
 });
 
 installIdEl.textContent = getInstallationId().slice(0, 8) + '…';
-versionEl.textContent = `v${CLIENT_VERSION}${DEMO_MODE ? ' · demo' : ''}`;
+versionEl.textContent = `v${CLIENT_VERSION}`;
 
 switchTab('live');
 
@@ -55,7 +56,3 @@ fetchPlacements()
   .catch(() => {});
 
 window.addEventListener('online', () => flushQueue());
-
-if (DEMO_MODE) {
-  console.info('House Monitor: localhost demo mode — BLE может быть недоступен, используйте кнопку «Демо».');
-}

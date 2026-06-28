@@ -272,6 +272,10 @@ body {
   display: none;
 }
 
+.hidden {
+  display: none !important;
+}
+
 /* Sensors */
 .sensor-grid {
   display: flex;

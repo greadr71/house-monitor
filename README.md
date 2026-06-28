@@ -1,13 +1,12 @@
 # House Monitor
 
-PWA для мониторинга BLE-датчиков Xiaomi (ATC/PVVX) на стройке: замеры, запись в Google Sheets, графики.
+PWA для мониторинга BLE-датчиков Xiaomi (ATC/PVVX) на стройке: GATT-подключение, запись в Google Sheets, графики.
 
-## Быстрый старт
+## Использование
 
-```bash
-npx serve -l 3000
-```
-
-Chrome → http://localhost:3000 → кнопка **Демо** → вкладка **Графики**.
+1. Открыть PWA в **Chrome на Android**
+2. **Подключить датчик** → выбрать BLE-устройство
+3. Привязать имя и позицию в доме
+4. **Записать** замер в Google Sheets
 
 Подробнее: [docs/SETUP.md](docs/SETUP.md)

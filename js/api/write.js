@@ -1,9 +1,4 @@
-import {
-  APPS_SCRIPT_URL,
-  CLIENT_VERSION,
-  DATA_BACKEND,
-  DEMO_MODE,
-} from '../config.js';
+import { APPS_SCRIPT_URL, CLIENT_VERSION } from '../config.js';
 import { getInstallationId } from '../storage/installation.js';
 import { enqueue, getAllQueued, getQueueCount, removeQueued } from '../storage/queue.js';
 
@@ -37,33 +32,15 @@ async function postToAppsScript(body) {
 
 /** @param {object} payload */
 export async function saveMeasurement(payload) {
-  const body = buildPayload(payload);
-
-  if (DATA_BACKEND === 'demo' || (DEMO_MODE && !APPS_SCRIPT_URL)) {
-    console.info('[demo] saveMeasurement', body);
-    await new Promise((r) => setTimeout(r, 400));
-    return { ok: true, demo: true, rows: body.measurements?.length || 0 };
-  }
-
-  return postToAppsScript(body);
+  return postToAppsScript(buildPayload(payload));
 }
 
 /** @param {object} payload */
 export async function queueMeasurement(payload) {
-  const body = buildPayload(payload);
-  await enqueue(body);
+  await enqueue(buildPayload(payload));
 }
 
 export async function flushQueue() {
-  if (DATA_BACKEND === 'demo' || (DEMO_MODE && !APPS_SCRIPT_URL)) {
-    const items = await getAllQueued();
-    for (const item of items) {
-      console.info('[demo] flush', item.payload);
-      await removeQueued(item.id);
-    }
-    return { sent: items.length, failed: 0 };
-  }
-
   const items = await getAllQueued();
   let sent = 0;
   let failed = 0;

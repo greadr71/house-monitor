@@ -1,10 +1,9 @@
-import { DEMO_MODE } from '../config.js';
 import {
   getReadings,
-  injectDemoReadings,
-  readOnceViaGatt,
-  startScan,
-  stopScan,
+  connectDevice,
+  connectSavedDevice,
+  reconnectSavedDevices,
+  isDeviceConnected,
   subscribe,
 } from '../ble/scanner.js';
 import { getDeviceList, addDevice, removeDevice, updateDevice, getDeviceById } from '../storage/devices.js';
@@ -22,9 +21,7 @@ const els = {
   saveBtn: null,
   queueBadge: null,
   statusBar: null,
-  scanBtn: null,
   gattBtn: null,
-  demoBtn: null,
   settingsPanel: null,
   deviceList: null,
   addDeviceBtn: null,
@@ -39,9 +36,7 @@ export function initLive(root) {
           <h2 class="panel-title">Датчики</h2>
         </div>
         <div class="header-actions">
-          <button type="button" class="btn btn-ghost btn-sm" id="scan-btn">Сканировать</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="gatt-btn">Подключить</button>
-          ${DEMO_MODE ? '<button type="button" class="btn btn-ghost btn-sm" id="demo-btn">Демо</button>' : ''}
+          <button type="button" class="btn btn-ghost btn-sm" id="gatt-btn">Подключить датчик</button>
         </div>
       </header>
 
@@ -54,7 +49,7 @@ export function initLive(root) {
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
           </svg>
           <p class="empty-title">Нет данных</p>
-          <p class="empty-desc">Запустите сканирование или добавьте датчики в настройках.</p>
+          <p class="empty-desc">Нажмите «Подключить датчик» и выберите BLE-устройство в списке.</p>
         </div>
       </div>
 
@@ -83,22 +78,27 @@ export function initLive(root) {
   els.saveBtn = root.querySelector('#save-btn');
   els.queueBadge = root.querySelector('#queue-badge');
   els.statusBar = root.querySelector('#status-bar');
-  els.scanBtn = root.querySelector('#scan-btn');
   els.gattBtn = root.querySelector('#gatt-btn');
-  els.demoBtn = root.querySelector('#demo-btn');
   els.settingsPanel = root.querySelector('#settings-panel');
   els.deviceList = root.querySelector('#device-list');
   els.addDeviceBtn = root.querySelector('#add-device-btn');
 
-  els.scanBtn.addEventListener('click', onScan);
-  els.gattBtn.addEventListener('click', onGatt);
-  els.demoBtn?.addEventListener('click', onDemo);
+  els.gattBtn.addEventListener('click', onConnect);
   els.saveBtn.addEventListener('click', onSave);
   els.addDeviceBtn.addEventListener('click', onAddDevice);
 
   subscribe(renderSensors);
   renderDeviceList();
   updateQueueBadge();
+
+  reconnectSavedDevices().then((result) => {
+    if (result.connected > 0) {
+      setStatus(result.message, 'success');
+      renderDeviceList();
+    } else if (result.message && result.mode === 'manual') {
+      setStatus(result.message, 'info');
+    }
+  });
 
   window.addEventListener('online', () => {
     flushQueue().then(updateQueueBadge);
@@ -110,25 +110,15 @@ function setStatus(message, type = 'info') {
   els.statusBar.dataset.type = type;
 }
 
-async function onScan() {
-  setStatus('Запуск сканирования…');
-  const result = await startScan();
+async function onConnect() {
+  setStatus('Выберите датчик в списке…');
+  const result = await connectDevice();
   if (result.ok) {
-    setStatus('Сканирование активно', 'success');
+    setStatus(`«${result.deviceName}» подключён, слушаем GATT-notify`, 'success');
+    renderDeviceList();
   } else {
     setStatus(result.message, 'error');
   }
-}
-
-async function onGatt() {
-  setStatus('Выберите датчик…');
-  const result = await readOnceViaGatt();
-  setStatus(result.ok ? 'Показания обновлены' : result.message, result.ok ? 'success' : 'error');
-}
-
-function onDemo() {
-  injectDemoReadings();
-  setStatus('Демо-данные загружены', 'success');
 }
 
 function renderSensors(map) {
@@ -147,7 +137,7 @@ function renderSensors(map) {
           <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
         </svg>
         <p class="empty-title">Нет данных</p>
-        <p class="empty-desc">Запустите сканирование или нажмите «Подключить» и выберите датчик в списке.${DEMO_MODE ? ' На localhost доступна кнопка «Демо».' : ''}</p>
+        <p class="empty-desc">Нажмите «Подключить датчик» и выберите BLE-устройство в списке.</p>
       </div>`;
     return;
   }
@@ -205,6 +195,7 @@ function renderDeviceList() {
         <span class="device-item-placement">${d.placement ? escapeHtml(d.placement) : '—'}</span>
       </div>
       <div class="device-item-actions">
+        <button type="button" class="btn btn-ghost btn-sm btn-reconnect" data-device-id="${escapeHtml(d.deviceId)}" ${isDeviceConnected(d.deviceId) ? 'disabled' : ''}>${isDeviceConnected(d.deviceId) ? 'Онлайн' : 'Подключить'}</button>
         <button type="button" class="btn btn-ghost btn-sm btn-placement" data-device-id="${escapeHtml(d.deviceId)}">Позиция</button>
         <button type="button" class="btn-icon" data-remove="${escapeHtml(d.deviceId)}" aria-label="Удалить">×</button>
       </div>
@@ -216,6 +207,16 @@ function renderDeviceList() {
     btn.addEventListener('click', () => {
       removeDevice(btn.dataset.remove);
       renderDeviceList();
+    });
+  });
+
+  els.deviceList.querySelectorAll('.btn-reconnect').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      setStatus(`Подключение «${getDeviceById(btn.dataset.deviceId)?.name}»…`);
+      const result = await connectSavedDevice(btn.dataset.deviceId);
+      setStatus(result.ok ? `«${result.deviceName}» подключён` : result.message, result.ok ? 'success' : 'error');
+      renderDeviceList();
+      renderSensors(getReadings());
     });
   });
 
@@ -249,7 +250,7 @@ async function onEditPlacement(deviceId) {
 async function onAddDevice() {
   const readings = getReadings();
   if (!readings.size) {
-    setStatus('Сначала получите показания (сканирование или подключение)', 'error');
+    setStatus('Сначала подключите датчик', 'error');
     return;
   }
   const first = [...readings.values()][0];
@@ -352,5 +353,6 @@ function plural(n, one, few, many) {
 }
 
 export async function teardownLive() {
-  await stopScan();
+  const { teardownConnections } = await import('../ble/scanner.js');
+  await teardownConnections();
 }

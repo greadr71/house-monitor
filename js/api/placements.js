@@ -1,8 +1,4 @@
-import {
-  APPS_SCRIPT_URL,
-  CLIENT_VERSION,
-  DEMO_MODE,
-} from '../config.js';
+import { APPS_SCRIPT_URL, CLIENT_VERSION } from '../config.js';
 import { getInstallationId } from '../storage/installation.js';
 import { getDeviceList } from '../storage/devices.js';
 
@@ -15,6 +11,10 @@ function basePayload() {
 
 /** @param {Array<{ deviceId: string, name: string, placement?: string }>} devices */
 export async function syncPlacements(devices) {
+  if (!APPS_SCRIPT_URL) {
+    throw new Error('APPS_SCRIPT_URL не настроен');
+  }
+
   const payload = {
     ...basePayload(),
     action: 'placements',
@@ -24,15 +24,6 @@ export async function syncPlacements(devices) {
       placement: d.placement || '',
     })),
   };
-
-  if (DEMO_MODE && !APPS_SCRIPT_URL) {
-    console.info('[demo] syncPlacements', payload);
-    return { ok: true, demo: true };
-  }
-
-  if (!APPS_SCRIPT_URL) {
-    throw new Error('APPS_SCRIPT_URL не настроен');
-  }
 
   const res = await fetch(APPS_SCRIPT_URL, {
     method: 'POST',
@@ -48,10 +39,6 @@ export async function syncPlacements(devices) {
 }
 
 export async function fetchPlacements() {
-  if (DEMO_MODE && !APPS_SCRIPT_URL) {
-    return { placements: [] };
-  }
-
   if (!APPS_SCRIPT_URL) {
     return { placements: [] };
   }
@@ -71,7 +58,6 @@ export async function fetchPlacements() {
   return data;
 }
 
-/** Синхронизировать все локальные позиции на сервер */
 export async function syncAllPlacements() {
   const devices = getDeviceList().filter((d) => d.placement);
   if (!devices.length) return { ok: true, skipped: true };
