@@ -85,9 +85,17 @@ export async function readOnceViaGatt() {
   }
 
   try {
+    // acceptAllDevices — как на pvvx.github.io: показывает все BLE-устройства в радиусе.
+    // Жёсткие namePrefix-фильтры скрывают датчики с именами вроде "Mitemp nostick".
     const device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: 'ATC' }, { namePrefix: 'PVVX' }, { namePrefix: 'ATC_' }],
-      optionalServices: ['environmental_sensing', 'battery_service', 'device_information'],
+      acceptAllDevices: true,
+      optionalServices: [
+        'environmental_sensing',
+        'battery_service',
+        'device_information',
+        'fe95', // Xiaomi custom
+        0xfe95,
+      ],
     });
 
     const server = await device.gatt.connect();
