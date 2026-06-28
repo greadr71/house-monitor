@@ -2,7 +2,8 @@ import { BASE_PATH, CLIENT_VERSION, DEMO_MODE } from './config.js';
 import { getInstallationId } from './storage/installation.js';
 import { initLive, teardownLive } from './ui/live.js';
 import { initCharts, teardownCharts } from './ui/charts.js';
-import { flushQueue } from './api/write.js';
+import { fetchPlacements } from './api/placements.js';
+import { mergeRemotePlacements } from './storage/devices.js';
 
 const liveRoot = document.getElementById('tab-live');
 const chartsRoot = document.getElementById('tab-charts');
@@ -48,6 +49,10 @@ if ('serviceWorker' in navigator) {
   const swPath = `${BASE_PATH}sw.js`.replace('//', '/');
   navigator.serviceWorker.register(swPath).catch(() => {});
 }
+
+fetchPlacements()
+  .then((data) => mergeRemotePlacements(data.placements))
+  .catch(() => {});
 
 window.addEventListener('online', () => flushQueue());
 

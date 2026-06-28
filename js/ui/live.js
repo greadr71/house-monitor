@@ -7,13 +7,14 @@ import {
   stopScan,
   subscribe,
 } from '../ble/scanner.js';
-import { getDeviceList, addDevice, removeDevice } from '../storage/devices.js';
+import { getDeviceList, addDevice, removeDevice, updateDevice, getDeviceById } from '../storage/devices.js';
 import {
   flushQueue,
   getPendingCount,
   queueMeasurement,
   saveMeasurement,
 } from '../api/write.js';
+import { syncPlacements } from '../api/placements.js';
 
 const els = {
   sensorGrid: null,
@@ -133,7 +134,10 @@ function onDemo() {
 function renderSensors(map) {
   const saved = getDeviceList();
   const entries = saved.length
-    ? saved.map((d) => map.get(d.deviceId) || { ...d, stale: true })
+    ? saved.map((d) => {
+        const r = map.get(d.deviceId) || { ...d, stale: true };
+        return { ...r, name: d.name, placement: d.placement || '' };
+      })
     : [...map.values()];
 
   if (!entries.length) {
@@ -157,7 +161,11 @@ function renderSensors(map) {
         <div>
           <h3 class="sensor-name">${escapeHtml(r.name)}</h3>
           <p class="sensor-ble">${escapeHtml(r.bleName || r.deviceId.slice(0, 12))}</p>
+          <p class="sensor-placement">${r.placement ? escapeHtml(r.placement) : '<span class="placement-empty">Позиция не задана</span>'}</p>
         </div>
+      </div>
+      <div class="sensor-actions">
+        <button type="button" class="btn btn-ghost btn-sm btn-placement" data-device-id="${escapeHtml(r.deviceId)}">Позиция</button>
       </div>
       <dl class="sensor-metrics">
         <div class="metric">
@@ -176,6 +184,10 @@ function renderSensors(map) {
     </article>`,
     )
     .join('');
+
+  els.sensorGrid.querySelectorAll('.btn-placement').forEach((btn) => {
+    btn.addEventListener('click', () => onEditPlacement(btn.dataset.deviceId));
+  });
 }
 
 function renderDeviceList() {
@@ -188,8 +200,14 @@ function renderDeviceList() {
     .map(
       (d) => `
     <li class="device-item">
-      <span>${escapeHtml(d.name)} <small>${escapeHtml(d.bleName)}</small></span>
-      <button type="button" class="btn-icon" data-remove="${escapeHtml(d.deviceId)}" aria-label="Удалить">×</button>
+      <div class="device-item-info">
+        <span>${escapeHtml(d.name)} <small>${escapeHtml(d.bleName)}</small></span>
+        <span class="device-item-placement">${d.placement ? escapeHtml(d.placement) : '—'}</span>
+      </div>
+      <div class="device-item-actions">
+        <button type="button" class="btn btn-ghost btn-sm btn-placement" data-device-id="${escapeHtml(d.deviceId)}">Позиция</button>
+        <button type="button" class="btn-icon" data-remove="${escapeHtml(d.deviceId)}" aria-label="Удалить">×</button>
+      </div>
     </li>`,
     )
     .join('');
@@ -200,6 +218,32 @@ function renderDeviceList() {
       renderDeviceList();
     });
   });
+
+  els.deviceList.querySelectorAll('.btn-placement').forEach((btn) => {
+    btn.addEventListener('click', () => onEditPlacement(btn.dataset.deviceId));
+  });
+}
+
+async function onEditPlacement(deviceId) {
+  const device = getDeviceById(deviceId);
+  if (!device) return;
+
+  const placement = prompt(
+    'Позиция датчика в доме\n(например: 1 этаж, гостиная у окна)',
+    device.placement || '',
+  );
+  if (placement === null) return;
+
+  updateDevice(deviceId, { placement: placement.trim() });
+  renderDeviceList();
+  renderSensors(getReadings());
+
+  try {
+    await syncPlacements([{ ...device, placement: placement.trim() }]);
+    setStatus('Позиция сохранена', 'success');
+  } catch (err) {
+    setStatus(`Позиция сохранена локально. Синхронизация: ${err.message}`, 'warn');
+  }
 }
 
 async function onAddDevice() {
@@ -211,9 +255,19 @@ async function onAddDevice() {
   const first = [...readings.values()][0];
   const name = prompt('Имя датчика (Дом, Улица…)', first.name);
   if (!name) return;
-  addDevice({ deviceId: first.deviceId, name: name.trim(), bleName: first.bleName });
+  const placement = prompt('Позиция в доме (необязательно)', '') || '';
+  const device = {
+    deviceId: first.deviceId,
+    name: name.trim(),
+    bleName: first.bleName,
+    placement: placement.trim(),
+  };
+  addDevice(device);
   renderDeviceList();
   setStatus(`Датчик «${name}» сохранён`, 'success');
+  if (device.placement) {
+    syncPlacements([device]).catch(() => {});
+  }
 }
 
 async function onSave() {
@@ -230,14 +284,17 @@ async function onSave() {
 
   const payload = {
     comment: els.comment.value.trim(),
-    location: source[0]?.name || '',
-    measurements: source.map((r) => ({
-      name: r.name,
-      mac: r.deviceId,
-      temperature: r.temperature,
-      humidity: r.humidity,
-      battery: r.battery,
-    })),
+    measurements: source.map((r) => {
+      const saved = getDeviceById(r.deviceId);
+      return {
+        name: r.name,
+        mac: r.deviceId,
+        location: saved?.placement || '',
+        temperature: r.temperature,
+        humidity: r.humidity,
+        battery: r.battery,
+      };
+    }),
   };
 
   els.saveBtn.disabled = true;

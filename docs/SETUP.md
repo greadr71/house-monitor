@@ -112,11 +112,11 @@ export const BASE_PATH = '/house-monitor/'; // или '/' для user.github.io
   "client_version": "1.0.0",
   "timestamp": "2026-06-28T12:00:00+03:00",
   "comment": "утренний замер",
-  "location": "Дом",
   "measurements": [
     {
       "name": "Дом",
       "mac": "device-id-from-ble",
+      "location": "1 этаж, гостиная",
       "temperature": 22.4,
       "humidity": 53,
       "battery": 95

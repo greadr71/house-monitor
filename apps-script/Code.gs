@@ -4,7 +4,7 @@
  */
 
 const CONFIG = {
-  ALLOWED_ORIGIN: 'https://YOUR_USERNAME.github.io',
+  ALLOWED_ORIGIN: 'https://greadr71.github.io',
   RATE_LIMIT_POST: 10,
   RATE_LIMIT_GET: 30,
   RATE_WINDOW_SEC: 60,
@@ -14,13 +14,16 @@ const SHEETS = {
   MEASUREMENTS: 'measurements',
   INSTALLATIONS: 'installations',
   ALLOWED_DEVICES: 'allowed_devices',
+  DEVICE_PLACEMENTS: 'device_placements',
 };
 
 function doPost(e) {
   try {
     assertOrigin_();
     const body = parseJson_(e);
-    validatePost_(body);
+
+    if (!body.installation_id) throw new Error('missing_installation_id');
+    if (!body.client_version) throw new Error('missing_client_version');
 
     const installOk = checkInstallation_(body.installation_id);
     if (!installOk) {
@@ -31,6 +34,13 @@ function doPost(e) {
       return jsonResponse_({ ok: false, error: 'rate_limit' }, 429);
     }
 
+    if (body.action === 'placements') {
+      validatePlacements_(body);
+      const updated = upsertPlacements_(body);
+      return jsonResponse_({ ok: true, updated: updated });
+    }
+
+    validatePost_(body);
     const rows = appendMeasurements_(body);
     return jsonResponse_({ ok: true, rows: rows });
   } catch (err) {
@@ -42,10 +52,6 @@ function doGet(e) {
   try {
     assertOrigin_();
     const params = e.parameter || {};
-    if (params.action !== 'history') {
-      return jsonResponse_({ ok: false, error: 'unknown_action' }, 400);
-    }
-
     const installationId = params.installation_id;
     if (!installationId) {
       return jsonResponse_({ ok: false, error: 'missing_installation_id' }, 400);
@@ -59,8 +65,17 @@ function doGet(e) {
       return jsonResponse_({ ok: false, error: 'rate_limit' }, 429);
     }
 
-    const records = readHistory_(params);
-    return jsonResponse_({ ok: true, records: records });
+    if (params.action === 'placements') {
+      const placements = readPlacements_();
+      return jsonResponse_({ ok: true, placements: placements });
+    }
+
+    if (params.action === 'history') {
+      const records = readHistory_(params);
+      return jsonResponse_({ ok: true, records: records });
+    }
+
+    return jsonResponse_({ ok: false, error: 'unknown_action' }, 400);
   } catch (err) {
     return jsonResponse_({ ok: false, error: String(err.message || err) }, 400);
   }
@@ -79,8 +94,6 @@ function parseJson_(e) {
 }
 
 function validatePost_(body) {
-  if (!body.installation_id) throw new Error('missing_installation_id');
-  if (!body.client_version) throw new Error('missing_client_version');
   if (!Array.isArray(body.measurements) || !body.measurements.length) {
     throw new Error('missing_measurements');
   }
@@ -94,6 +107,16 @@ function validatePost_(body) {
     if (typeof m.temperature !== 'number' || typeof m.humidity !== 'number') {
       throw new Error('invalid_measurement');
     }
+  });
+}
+
+function validatePlacements_(body) {
+  if (!Array.isArray(body.devices) || !body.devices.length) {
+    throw new Error('missing_devices');
+  }
+  body.devices.forEach(function (d) {
+    if (!d.device_name) throw new Error('missing_device_name');
+    if (typeof d.placement !== 'string') throw new Error('invalid_placement');
   });
 }
 
@@ -125,6 +148,8 @@ function getSheet_(name) {
       sheet.appendRow(['device_name']);
       sheet.appendRow(['Дом']);
       sheet.appendRow(['Улица']);
+    } else if (name === SHEETS.DEVICE_PLACEMENTS) {
+      sheet.appendRow(['device_name', 'device_id', 'placement', 'updated_at', 'installation_id']);
     }
   }
   return sheet;
@@ -178,7 +203,7 @@ function appendMeasurements_(body) {
       m.humidity,
       m.battery != null ? m.battery : '',
       body.comment || '',
-      body.location || '',
+      m.location || '',
       body.installation_id,
       body.client_version,
     ]);
@@ -235,6 +260,64 @@ function readHistory_(params) {
   return records.slice(-2000);
 }
 
+function upsertPlacements_(body) {
+  const sheet = getSheet_(SHEETS.DEVICE_PLACEMENTS);
+  const data = sheet.getDataRange().getValues();
+  const header = data[0] || [];
+  const nameCol = header.indexOf('device_name');
+  const idCol = header.indexOf('device_id');
+  const placementCol = header.indexOf('placement');
+  const updatedCol = header.indexOf('updated_at');
+  const installCol = header.indexOf('installation_id');
+  const now = new Date().toISOString();
+  let updated = 0;
+
+  body.devices.forEach(function (d) {
+    let rowIndex = -1;
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][nameCol] === d.device_name || (d.device_id && data[i][idCol] === d.device_id)) {
+        rowIndex = i + 1;
+        break;
+      }
+    }
+
+    if (rowIndex > 0) {
+      sheet.getRange(rowIndex, placementCol + 1).setValue(d.placement);
+      sheet.getRange(rowIndex, updatedCol + 1).setValue(now);
+      if (d.device_id) sheet.getRange(rowIndex, idCol + 1).setValue(d.device_id);
+      sheet.getRange(rowIndex, installCol + 1).setValue(body.installation_id);
+    } else {
+      sheet.appendRow([d.device_name, d.device_id || '', d.placement, now, body.installation_id]);
+    }
+    updated += 1;
+  });
+
+  return updated;
+}
+
+function readPlacements_() {
+  const sheet = getSheet_(SHEETS.DEVICE_PLACEMENTS);
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+
+  const header = data[0];
+  const col = function (name) {
+    return header.indexOf(name);
+  };
+
+  const placements = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    placements.push({
+      device_name: String(row[col('device_name')] || ''),
+      device_id: String(row[col('device_id')] || ''),
+      placement: String(row[col('placement')] || ''),
+      updated_at: String(row[col('updated_at')] || ''),
+    });
+  }
+  return placements;
+}
+
 function checkRateLimit_(installationId, kind) {
   const cache = CacheService.getScriptCache();
   const key = 'rl_' + kind + '_' + installationId;
@@ -264,9 +347,16 @@ function setupSheets() {
   getSheet_(SHEETS.MEASUREMENTS);
   getSheet_(SHEETS.INSTALLATIONS);
   getSheet_(SHEETS.ALLOWED_DEVICES);
+  getSheet_(SHEETS.DEVICE_PLACEMENTS);
 
   Logger.log('Готово. Таблица: %s', ss.getUrl());
-  Logger.log('Созданы листы: %s, %s, %s', SHEETS.MEASUREMENTS, SHEETS.INSTALLATIONS, SHEETS.ALLOWED_DEVICES);
+  Logger.log(
+    'Созданы листы: %s, %s, %s, %s',
+    SHEETS.MEASUREMENTS,
+    SHEETS.INSTALLATIONS,
+    SHEETS.ALLOWED_DEVICES,
+    SHEETS.DEVICE_PLACEMENTS,
+  );
   Logger.log('Переключитесь на вкладку таблицы — новые листы внизу экрана.');
-  return 'OK: листы measurements, installations, allowed_devices';
+  return 'OK: листы measurements, installations, allowed_devices, device_placements';
 }

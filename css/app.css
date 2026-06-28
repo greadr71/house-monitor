@@ -292,8 +292,15 @@ body {
 @media (min-width: 480px) {
   .sensor-row {
     grid-template-columns: 1fr auto;
-    align-items: center;
+    grid-template-areas:
+      'meta actions'
+      'metrics metrics';
+    align-items: start;
   }
+
+  .sensor-meta { grid-area: meta; }
+  .sensor-actions { grid-area: actions; }
+  .sensor-metrics { grid-area: metrics; }
 }
 
 .sensor-row.is-stale {
@@ -345,6 +352,26 @@ body {
   font-family: var(--mono);
   font-size: 0.6875rem;
   color: var(--text-muted);
+}
+
+.sensor-placement {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.placement-empty {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+.sensor-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-placement {
+  white-space: nowrap;
 }
 
 .sensor-metrics {
@@ -429,9 +456,29 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.5rem 0;
   border-bottom: 1px solid var(--border);
   font-size: 0.875rem;
+}
+
+.device-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.device-item-placement {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.device-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
 }
 
 .device-item small {
