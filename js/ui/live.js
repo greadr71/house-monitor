@@ -196,6 +196,7 @@ function renderDeviceList() {
       </div>
       <div class="device-item-actions">
         <button type="button" class="btn btn-ghost btn-sm btn-reconnect" data-device-id="${escapeHtml(d.deviceId)}" ${isDeviceConnected(d.deviceId) ? 'disabled' : ''}>${isDeviceConnected(d.deviceId) ? 'Онлайн' : 'Подключить'}</button>
+        <button type="button" class="btn btn-ghost btn-sm btn-rename" data-device-id="${escapeHtml(d.deviceId)}">Имя</button>
         <button type="button" class="btn btn-ghost btn-sm btn-placement" data-device-id="${escapeHtml(d.deviceId)}">Позиция</button>
         <button type="button" class="btn-icon" data-remove="${escapeHtml(d.deviceId)}" aria-label="Удалить">×</button>
       </div>
@@ -223,6 +224,23 @@ function renderDeviceList() {
   els.deviceList.querySelectorAll('.btn-placement').forEach((btn) => {
     btn.addEventListener('click', () => onEditPlacement(btn.dataset.deviceId));
   });
+
+  els.deviceList.querySelectorAll('.btn-rename').forEach((btn) => {
+    btn.addEventListener('click', () => onRenameDevice(btn.dataset.deviceId));
+  });
+}
+
+async function onRenameDevice(deviceId) {
+  const device = getDeviceById(deviceId);
+  if (!device) return;
+
+  const name = prompt('Имя датчика (Дом, Улица, Гостиная…)', device.name);
+  if (!name || name.trim() === device.name) return;
+
+  updateDevice(deviceId, { name: name.trim() });
+  renderDeviceList();
+  renderSensors(getReadings());
+  setStatus(`Датчик переименован в «${name.trim()}»`, 'success');
 }
 
 async function onEditPlacement(deviceId) {
@@ -312,7 +330,10 @@ async function onSave() {
       await queueMeasurement(payload);
       setStatus('Офлайн: запись добавлена в очередь', 'warn');
     } else {
-      setStatus(err.message || 'Ошибка записи', 'error');
+      const msg = err.message?.startsWith('device_not_allowed:')
+        ? `Датчик «${err.message.replace('device_not_allowed: ', '')}» не в whitelist. Обновите Apps Script или добавьте имя на лист allowed_devices.`
+        : err.message || 'Ошибка записи';
+      setStatus(msg, 'error');
     }
   } finally {
     els.saveBtn.disabled = false;

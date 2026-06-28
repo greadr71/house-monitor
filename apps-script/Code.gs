@@ -93,17 +93,21 @@ function parseJson_(e) {
   return JSON.parse(e.postData.contents);
 }
 
+function ensureDeviceAllowed_(name) {
+  const allowed = getAllowedDeviceNames_();
+  if (allowed.indexOf(name) !== -1) return;
+  const sheet = getSheet_(SHEETS.ALLOWED_DEVICES);
+  sheet.appendRow([name]);
+}
+
 function validatePost_(body) {
   if (!Array.isArray(body.measurements) || !body.measurements.length) {
     throw new Error('missing_measurements');
   }
 
-  const allowed = getAllowedDeviceNames_();
   body.measurements.forEach(function (m) {
     if (!m.name) throw new Error('missing_device_name');
-    if (allowed.length && allowed.indexOf(m.name) === -1) {
-      throw new Error('device_not_allowed: ' + m.name);
-    }
+    ensureDeviceAllowed_(m.name);
     if (typeof m.temperature !== 'number' || typeof m.humidity !== 'number') {
       throw new Error('invalid_measurement');
     }

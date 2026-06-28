@@ -1,4 +1,4 @@
-export const CLIENT_VERSION = '1.4.0';
+export const CLIENT_VERSION = '1.4.1';
 
 /** Заполнить после деплоя Apps Script Web App */
 export const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzQcvwU4s-HCeK7Do8s2_-aX5S00jVpYVT-32JHEAwcC21I4kGaPZq8bkF83GqT3K8/exec';
