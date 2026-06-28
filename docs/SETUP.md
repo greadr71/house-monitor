@@ -32,11 +32,34 @@ npx serve -l 3000
 ### 1. Google Таблица
 
 1. [sheets.new](https://sheets.new) — новая таблица, название например «House Monitor».
-2. **Расширения → Apps Script**.
-3. Удалите содержимое `Code.gs`, вставьте код из [`apps-script/Code.gs`](apps-script/Code.gs).
+2. **Расширения → Apps Script** — откроется **новая вкладка** с редактором. Это нормально: код пишется там, таблица остаётся на предыдущей вкладке.
+3. На вкладке Apps Script: удалите содержимое `Code.gs`, вставьте код из [`apps-script/Code.gs`](../apps-script/Code.gs).
 4. В `CONFIG.ALLOWED_ORIGIN` укажите ваш GitHub Pages URL, например:
    `https://username.github.io`
-5. Запустите функцию **`setupSheets`** (▶ Run) — создадутся листы:
+5. Запустите функцию **`setupSheets`**:
+   - в редакторе Apps Script выберите `setupSheets` в выпадающем списке функций;
+   - нажмите **▶ Выполнить**;
+   - при **первом** запуске подтвердите доступ («Разрешить»).
+6. **Переключитесь обратно на вкладку с таблицей** и нажмите F5.
+
+#### Где результат
+
+**Не в журнале выполнения** — там только «Выполнение начато / завершено». Это нормально.
+
+Результат смотрите **в самой Google Таблице** (вкладка браузера с таблицей, не Apps Script):
+
+- внизу появятся **новые листы** (вкладки):
+  - `measurements` — заголовки: timestamp, device_name, temperature…
+  - `installations` — installation_id, label, approved, first_seen
+  - `allowed_devices` — device_name (+ строки «Дом», «Улица»)
+
+Если листов нет:
+
+1. Убедитесь, что скрипт **привязан к таблице**: открыли [sheets.new](https://sheets.new) → **Расширения → Apps Script**, а не script.google.com отдельно.
+2. Обновите страницу таблицы (F5).
+3. В Apps Script: **Выполнение → Журнал выполнения** — после обновления кода будет строка `Готово. Таблица: https://...`.
+
+Создадутся листы:
    - `measurements` — все замеры
    - `installations` — whitelist телефонов
    - `allowed_devices` — whitelist датчиков (по умолчанию «Дом», «Улица»)

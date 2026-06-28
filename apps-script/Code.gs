@@ -254,7 +254,19 @@ function jsonResponse_(obj, status) {
 
 /** Однократный запуск: создать листы и заголовки */
 function setupSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) {
+    throw new Error(
+      'Нет привязанной таблицы. Откройте Google Таблицу → Расширения → Apps Script и запустите setupSheets оттуда.',
+    );
+  }
+
   getSheet_(SHEETS.MEASUREMENTS);
   getSheet_(SHEETS.INSTALLATIONS);
   getSheet_(SHEETS.ALLOWED_DEVICES);
+
+  Logger.log('Готово. Таблица: %s', ss.getUrl());
+  Logger.log('Созданы листы: %s, %s, %s', SHEETS.MEASUREMENTS, SHEETS.INSTALLATIONS, SHEETS.ALLOWED_DEVICES);
+  Logger.log('Переключитесь на вкладку таблицы — новые листы внизу экрана.');
+  return 'OK: листы measurements, installations, allowed_devices';
 }
