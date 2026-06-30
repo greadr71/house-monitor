@@ -40,13 +40,14 @@ BLE: `requestDevice` → GATT notify (ATC Connection Mode). Нужен **Chrome 
 1. [sheets.new](https://sheets.new) — новая таблица, название например «House Monitor».
 2. **Расширения → Apps Script** — откроется **новая вкладка** с редактором. Это нормально: код пишется там, таблица остаётся на предыдущей вкладке.
 3. На вкладке Apps Script: удалите содержимое `Code.gs`, вставьте код из [`apps-script/Code.gs`](../apps-script/Code.gs).
-4. В `CONFIG.ALLOWED_ORIGIN` укажите ваш GitHub Pages URL, например:
+4. **Project Settings** (шестерёнка) → **Time zone** → `(GMT+03:00) Moscow` — все метки времени в таблице пишутся в московском поясе.
+5. В `CONFIG.ALLOWED_ORIGIN` укажите ваш GitHub Pages URL, например:
    `https://username.github.io`
-5. Запустите функцию **`setupSheets`**:
+6. Запустите функцию **`setupSheets`**:
    - в редакторе Apps Script выберите `setupSheets` в выпадающем списке функций;
    - нажмите **▶ Выполнить**;
    - при **первом** запуске подтвердите доступ («Разрешить»).
-6. **Переключитесь обратно на вкладку с таблицей** и нажмите F5.
+7. **Переключитесь обратно на вкладку с таблицей** и нажмите F5.
 
 #### Где результат
 
@@ -76,6 +77,8 @@ BLE: `requestDevice` → GATT notify (ATC Connection Mode). Нужен **Chrome 
 2. Execute as: **Me**
 3. Who has access: **Anyone**
 4. Скопируйте URL вида `https://script.google.com/macros/s/.../exec`
+
+После изменения `Code.gs` создайте **новую версию**: **Deploy → Manage deployments → Edit (карандаш) → Version: New version → Deploy**. URL Web App при этом не меняется.
 
 ### 3. Клиент
 
@@ -111,6 +114,8 @@ export const BASE_PATH = '/house-monitor/'; // или '/' для user.github.io
 ---
 
 ## Структура JSON (POST)
+
+Клиент может присылать `timestamp` в UTC (`...Z`); сервер нормализует и **записывает в таблицу московское время** в формате ISO с суффиксом `+03:00`.
 
 ```json
 {

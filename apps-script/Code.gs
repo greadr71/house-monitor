@@ -17,6 +17,13 @@ const SHEETS = {
   DEVICE_PLACEMENTS: 'device_placements',
 };
 
+const TZ_MSK = 'Europe/Moscow';
+
+function toMskIso_(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  return Utilities.formatDate(d, TZ_MSK, "yyyy-MM-dd'T'HH:mm:ss") + '+03:00';
+}
+
 function doPost(e) {
   try {
     assertOrigin_();
@@ -178,7 +185,7 @@ function checkInstallation_(installationId) {
     installationId,
     'unknown',
     false,
-    new Date().toISOString(),
+    toMskIso_(new Date()),
   ]);
   return false;
 }
@@ -195,7 +202,7 @@ function getAllowedDeviceNames_() {
 
 function appendMeasurements_(body) {
   const sheet = getSheet_(SHEETS.MEASUREMENTS);
-  const ts = body.timestamp || new Date().toISOString();
+  const ts = toMskIso_(body.timestamp || new Date());
   let count = 0;
 
   body.measurements.forEach(function (m) {
@@ -248,7 +255,7 @@ function readHistory_(params) {
     if (deviceFilter.length && deviceFilter.indexOf(deviceName) === -1) continue;
 
     records.push({
-      timestamp: ts.toISOString(),
+      timestamp: toMskIso_(ts),
       device_name: deviceName,
       temperature: Number(row[col('temperature')]),
       humidity: Number(row[col('humidity')]),
@@ -273,7 +280,7 @@ function upsertPlacements_(body) {
   const placementCol = header.indexOf('placement');
   const updatedCol = header.indexOf('updated_at');
   const installCol = header.indexOf('installation_id');
-  const now = new Date().toISOString();
+  const now = toMskIso_(new Date());
   let updated = 0;
 
   body.devices.forEach(function (d) {
